@@ -116,7 +116,7 @@ vos_update_or_fetch(enum ts_op_type op_type, struct dts_io_credit *cred,
 		else
 			rc = vos_fetch_begin(ts_ctx.tsc_coh, ts_uoid, epoch,
 					     &cred->tc_dkey, 1, &cred->tc_iod,
-					     false, &ioh);
+					     0, NULL, &ioh);
 		if (rc)
 			return rc;
 

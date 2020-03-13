@@ -72,7 +72,22 @@ struct vos_io_context {
 	unsigned int		 ic_iod_nr;
 	/** flags */
 	unsigned int		 ic_update:1,
-				 ic_size_fetch:1;
+				 ic_size_fetch:1,
+				 ic_record_recx:1,
+				 ic_record_hole:1;
+	/**
+	 * Shadow recx/epoch is only for degraded mode EC obj fetch handling.
+	 * 1. Query parity space to get the recx/epoch list (shadow list).
+	 * 2. Set the shadow list for fetch, for the covered exts below the
+	 *    shadows - ignore fetch (set as hole) and return it to client.
+	 */
+	/** Input shadow recx lists, one for each iod */
+	struct daos_recx_ep_list *ic_shadows;
+	/**
+	 * Output recx/epoch lists, one for each iod. User can get it by
+	 * vos_ioh2recx_list() and should free it.
+	 */
+	struct daos_recx_ep_list *ic_recx_lists;
 };
 
 static inline struct umem_instance *
@@ -183,7 +198,8 @@ vos_ioc_destroy(struct vos_io_context *ioc, bool evict)
 static int
 vos_ioc_create(daos_handle_t coh, daos_unit_oid_t oid, bool read_only,
 	       daos_epoch_t epoch, unsigned int iod_nr, daos_iod_t *iods,
-	       struct dcs_iod_csums *iod_csums, bool size_fetch,
+	       struct dcs_iod_csums *iod_csums, uint32_t flags,
+	       struct daos_recx_ep_list *shadows,
 	       struct vos_io_context **ioc_pp)
 {
 	struct vos_container *cont;
@@ -209,7 +225,9 @@ vos_ioc_create(daos_handle_t coh, daos_unit_oid_t oid, bool read_only,
 	ioc->ic_cont = vos_hdl2cont(coh);
 	vos_cont_addref(ioc->ic_cont);
 	ioc->ic_update = !read_only;
-	ioc->ic_size_fetch = size_fetch;
+	ioc->ic_size_fetch = flags & VOS_FETCH_SIZE_ONLY;
+	ioc->ic_record_recx = flags & VOS_FETCH_RECX_LIST;
+	ioc->ic_record_hole = flags & VOS_FETCH_HOLE_LIST;
 	ioc->ic_actv = NULL;
 	ioc->ic_actv_cnt = ioc->ic_actv_at = 0;
 	ioc->ic_umoffs_cnt = ioc->ic_umoffs_at = 0;
@@ -217,6 +235,7 @@ vos_ioc_create(daos_handle_t coh, daos_unit_oid_t oid, bool read_only,
 	vos_ilog_fetch_init(&ioc->ic_dkey_info);
 	vos_ilog_fetch_init(&ioc->ic_akey_info);
 	D_INIT_LIST_HEAD(&ioc->ic_blk_exts);
+	ioc->ic_shadows = shadows;
 
 	rc = vos_ioc_reserve_init(ioc);
 	if (rc != 0)
@@ -431,10 +450,35 @@ biov_align_lens(struct bio_iov *biov, struct evt_entry *ent, daos_size_t rsize)
 			  rsize);
 }
 
+/**
+ * Save to recx/ep list, user can get it by vos_ioh2recx_list() and then free
+ * the memory.
+ */
+static int
+save_recx(struct vos_io_context *ioc, uint64_t rx_idx, uint64_t rx_nr,
+	  daos_epoch_t ep)
+{
+	struct daos_recx_ep_list	*recx_list;
+	struct daos_recx_ep		 recx_ep;
+
+	if (ioc->ic_recx_lists == NULL) {
+		D_ALLOC_ARRAY(ioc->ic_recx_lists, ioc->ic_iod_nr);
+		if (ioc->ic_recx_lists == NULL)
+			return -DER_NOMEM;
+	}
+
+	recx_list = &ioc->ic_recx_lists[ioc->ic_sgl_at];
+	recx_ep.re_recx.rx_idx = rx_idx;
+	recx_ep.re_recx.rx_nr = rx_nr;
+	recx_ep.re_ep = ep;
+
+	return daos_recx_ep_add(recx_list, &recx_ep);
+}
+
 /** Fetch an extent from an akey */
 static int
 akey_fetch_recx(daos_handle_t toh, const daos_epoch_range_t *epr,
-		daos_recx_t *recx, daos_size_t *rsize_p,
+		daos_recx_t *recx, daos_epoch_t shadow_ep, daos_size_t *rsize_p,
 		struct vos_io_context *ioc)
 {
 	struct evt_entry	*ent;
@@ -449,6 +493,10 @@ akey_fetch_recx(daos_handle_t toh, const daos_epoch_range_t *epr,
 	daos_off_t		 index;
 	daos_off_t		 end;
 	bool			 csum_enabled = false;
+	bool			 with_shadow = (shadow_ep != DAOS_EPOCH_MAX);
+	bool			 record_recx = ioc->ic_record_recx;
+	bool			 record_hole = ioc->ic_record_hole;
+	daos_epoch_t		 hole_ep = with_shadow ? shadow_ep : 0;
 	int			 rc;
 
 	index = recx->rx_idx;
@@ -480,13 +528,20 @@ akey_fetch_recx(daos_handle_t toh, const daos_epoch_range_t *epr,
 			holes += lo - index;
 		}
 
-		if (bio_addr_is_hole(&ent->en_addr)) { /* hole extent */
+		/* Hole extent, with_shadow case only used for EC obj */
+		if (bio_addr_is_hole(&ent->en_addr) ||
+		    (with_shadow && (ent->en_epoch < shadow_ep))) {
 			index = lo + nr;
 			holes += nr;
 			continue;
 		}
 
 		if (holes != 0) {
+			if (record_hole) {
+				rc = save_recx(ioc, lo - holes, holes, hole_ep);
+				if (rc != 0)
+					goto failed;
+			}
 			biov_set_hole(&biov, holes * ent_array.ea_inob);
 			/* skip the hole */
 			rc = iod_fetch(ioc, &biov);
@@ -499,6 +554,11 @@ akey_fetch_recx(daos_handle_t toh, const daos_epoch_range_t *epr,
 			rsize = ent_array.ea_inob;
 		D_ASSERT(rsize == ent_array.ea_inob);
 
+		if (record_recx) {
+			rc = save_recx(ioc, lo, nr, ent->en_epoch);
+			if (rc != 0)
+				goto failed;
+		}
 		bio_iov_set(&biov, ent->en_addr, nr * ent_array.ea_inob);
 
 		if (ci_is_valid(&ent->en_csum)) {
@@ -526,12 +586,17 @@ akey_fetch_recx(daos_handle_t toh, const daos_epoch_range_t *epr,
 		holes += end - index;
 
 	if (holes != 0) { /* trailing holes */
+		if (record_hole) {
+			rc = save_recx(ioc, end - holes, holes, hole_ep);
+			if (rc != 0)
+				goto failed;
+		}
 		biov_set_hole(&biov, holes * ent_array.ea_inob);
 		rc = iod_fetch(ioc, &biov);
 		if (rc != 0)
 			goto failed;
 	}
-	if (rsize_p)
+	if (rsize_p && *rsize_p == 0)
 		*rsize_p = rsize;
 failed:
 	evt_ent_array_fini(&ent_array);
@@ -588,6 +653,42 @@ out:
 	return rc;
 }
 
+static void
+akey_fetch_recx_get(daos_recx_t *iod_recx, struct daos_recx_ep_list *shadow,
+		    daos_recx_t *fetch_recx, daos_epoch_t *shadow_ep)
+{
+	struct daos_recx_ep	*recx_ep;
+	daos_recx_t		*recx;
+	uint32_t		 i;
+
+	if (shadow == NULL)
+		goto no_shadow;
+
+	for (i = 0; i < shadow->re_nr; i++) {
+		recx_ep = &shadow->re_items[i];
+		recx = &recx_ep->re_recx;
+		if (!DAOS_RECX_PTR_OVERLAP(iod_recx, recx))
+			continue;
+
+		fetch_recx->rx_idx = iod_recx->rx_idx;
+		fetch_recx->rx_nr = min((iod_recx->rx_idx + iod_recx->rx_nr),
+					(recx->rx_idx + recx->rx_nr)) -
+				    iod_recx->rx_idx;
+		iod_recx->rx_idx += fetch_recx->rx_nr;
+		iod_recx->rx_nr -= fetch_recx->rx_nr;
+		*shadow_ep = recx_ep->re_ep;
+		D_ASSERT(fetch_recx->rx_nr > 0 &&
+			 fetch_recx->rx_nr <= iod_recx->rx_nr);
+		return;
+	}
+
+no_shadow:
+	*fetch_recx = *iod_recx;
+	iod_recx->rx_idx += fetch_recx->rx_nr;
+	iod_recx->rx_nr -= fetch_recx->rx_nr;
+	*shadow_ep = DAOS_EPOCH_MAX;
+}
+
 static int
 akey_fetch(struct vos_io_context *ioc, daos_handle_t ak_toh)
 {
@@ -598,6 +699,7 @@ akey_fetch(struct vos_io_context *ioc, daos_handle_t ak_toh)
 	int			 i, rc;
 	int			 flags = 0;
 	bool			 is_array = (iod->iod_type == DAOS_IOD_ARRAY);
+	struct daos_recx_ep_list *shadow;
 
 	D_DEBUG(DB_IO, "akey "DF_KEY" fetch %s epr "DF_U64"-"DF_U64"\n",
 		DP_KEY(&iod->iod_name),
@@ -648,8 +750,13 @@ akey_fetch(struct vos_io_context *ioc, daos_handle_t ak_toh)
 	}
 
 	iod->iod_size = 0;
+	shadow = (ioc->ic_shadows == NULL) ? NULL :
+					     &ioc->ic_shadows[ioc->ic_sgl_at];
 	for (i = 0; i < iod->iod_nr; i++) {
-		daos_size_t rsize;
+		daos_recx_t	iod_recx;
+		daos_recx_t	fetch_recx;
+		daos_epoch_t	shadow_ep;
+		daos_size_t	rsize = 0;
 
 		if (iod->iod_recxs[i].rx_nr == 0) {
 			D_DEBUG(DB_IO,
@@ -659,12 +766,17 @@ akey_fetch(struct vos_io_context *ioc, daos_handle_t ak_toh)
 			continue;
 		}
 
-		rc = akey_fetch_recx(toh, &val_epr, &iod->iod_recxs[i], &rsize,
-				     ioc);
-		if (rc != 0) {
-			D_DEBUG(DB_IO, "Failed to fetch index %d: "DF_RC"\n", i,
-				DP_RC(rc));
-			goto out;
+		iod_recx = iod->iod_recxs[i];
+		while (iod_recx.rx_nr > 0) {
+			akey_fetch_recx_get(&iod_recx, shadow, &fetch_recx,
+					    &shadow_ep);
+			rc = akey_fetch_recx(toh, &val_epr, &fetch_recx,
+					     shadow_ep, &rsize, ioc);
+			if (rc != 0) {
+				D_DEBUG(DB_IO, "Failed to fetch index %d: "
+					DF_RC"\n", i, DP_RC(rc));
+				goto out;
+			}
 		}
 
 		/*
@@ -776,17 +888,17 @@ vos_fetch_end(daos_handle_t ioh, int err)
 int
 vos_fetch_begin(daos_handle_t coh, daos_unit_oid_t oid, daos_epoch_t epoch,
 		daos_key_t *dkey, unsigned int nr, daos_iod_t *iods,
-		bool size_fetch, daos_handle_t *ioh)
+		uint32_t flags, struct daos_recx_ep_list *shadows,
+		daos_handle_t *ioh)
 {
-	struct vos_io_context *ioc;
-	int i, rc;
+	struct vos_io_context	*ioc;
+	int			 i, rc;
 
 	D_DEBUG(DB_TRACE, "Fetch "DF_UOID", desc_nr %d, epoch "DF_U64"\n",
 		DP_UOID(oid), nr, epoch);
 
 	rc = vos_ioc_create(coh, oid, true, epoch, nr, iods, NULL,
-			    size_fetch,
-			    &ioc);
+			    flags, shadows, &ioc);
 	if (rc != 0)
 		return rc;
 
@@ -1438,7 +1550,7 @@ vos_update_begin(daos_handle_t coh, daos_unit_oid_t oid, daos_epoch_t epoch,
 		DP_UOID(oid), iod_nr, epoch);
 
 	rc = vos_ioc_create(coh, oid, false, epoch, iod_nr, iods, iods_csums,
-			    false, &ioc);
+			    0 /* flags */, NULL, &ioc);
 	if (rc != 0)
 		goto done;
 
@@ -1452,6 +1564,12 @@ vos_update_begin(daos_handle_t coh, daos_unit_oid_t oid, daos_epoch_t epoch,
 	*ioh = vos_ioc2ioh(ioc);
 done:
 	return rc;
+}
+
+struct daos_recx_ep_list *
+vos_ioh2recx_list(daos_handle_t ioh)
+{
+	return vos_ioh2ioc(ioh)->ic_recx_lists;
 }
 
 struct bio_desc *
@@ -1554,12 +1672,13 @@ vos_obj_fetch(daos_handle_t coh, daos_unit_oid_t oid, daos_epoch_t epoch,
 	      daos_key_t *dkey, unsigned int iod_nr, daos_iod_t *iods,
 	      d_sg_list_t *sgls)
 {
-	daos_handle_t ioh;
-	bool size_fetch = (sgls == NULL);
-	int rc;
+	daos_handle_t	ioh;
+	bool		size_fetch = (sgls == NULL);
+	uint32_t	fetch_flags = size_fetch ? VOS_FETCH_SIZE_ONLY : 0;
+	int		rc;
 
-	rc = vos_fetch_begin(coh, oid, epoch, dkey, iod_nr, iods, size_fetch,
-			     &ioh);
+	rc = vos_fetch_begin(coh, oid, epoch, dkey, iod_nr, iods, fetch_flags,
+			     NULL, &ioh);
 	if (rc) {
 		if (rc == -DER_INPROGRESS)
 			D_DEBUG(DB_TRACE, "Cannot fetch "DF_UOID" because of "

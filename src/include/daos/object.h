@@ -169,9 +169,9 @@ struct daos_obj_shard {
 };
 
 struct daos_obj_layout {
-	uint32_t	ol_ver;
-	uint32_t	ol_class;
-	uint32_t	ol_nr;
+	uint32_t		 ol_ver;
+	uint32_t		 ol_class;
+	uint32_t		 ol_nr;
 	struct daos_obj_shard	*ol_shards[0];
 };
 
@@ -395,5 +395,50 @@ struct obj_enum_rec {
 	uint32_t		rec_version;
 	uint32_t		rec_flags;
 };
+
+struct daos_recx_ep {
+	daos_recx_t	re_recx;
+	daos_epoch_t	re_ep;
+};
+
+struct daos_recx_ep_list {
+	/** #valid items in re_items array */
+	uint32_t		 re_nr;
+	/** #total items (capacity) in re_items array */
+	uint32_t		 re_total;
+	struct daos_recx_ep	*re_items;
+};
+
+static inline void
+daos_recx_ep_free(struct daos_recx_ep_list *list)
+{
+	if (list->re_items != NULL)
+		D_FREE(list->re_items);
+	list->re_nr = 0;
+	list->re_total = 0;
+}
+
+static inline int
+daos_recx_ep_add(struct daos_recx_ep_list *list, struct daos_recx_ep *recx)
+{
+	struct daos_recx_ep	*new_items;
+	uint32_t		 nr;
+
+	if (list->re_total == list->re_nr) {
+		nr = (list->re_total == 0) ? 8 : (2 * list->re_total);
+		if (list->re_total == 0)
+			D_ALLOC_ARRAY(new_items, nr);
+		else
+			D_REALLOC_ARRAY(new_items, list->re_items, nr);
+		if (new_items == NULL)
+			return -DER_NOMEM;
+		list->re_items = new_items;
+		list->re_total = nr;
+	}
+
+	D_ASSERT(list->re_total > list->re_nr);
+	list->re_items[list->re_nr++] = *recx;
+	return 0;
+}
 
 #endif /* __DD_OBJ_H__ */

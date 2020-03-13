@@ -551,6 +551,17 @@ vos_obj_delete(daos_handle_t coh, daos_unit_oid_t oid);
 /**
  * I/O APIs
  */
+
+/**
+ * VOS fetch flags
+ * VOS_FETCH_SIZE_ONLY - only query iod_size
+ * VOS_FETCH_RECX_LIST - record existing recx list
+ * VOS_FETCH_HOLE_LIST - record hole list
+ */
+#define VOS_FETCH_SIZE_ONLY	(0x1UL << 0)
+#define VOS_FETCH_RECX_LIST	(0x1UL << 1)
+#define VOS_FETCH_HOLE_LIST	(0x1UL << 2)
+
 /**
  *
  * Find and return I/O source buffers for the data of the specified
@@ -571,8 +582,10 @@ vos_obj_delete(daos_handle_t coh, daos_unit_oid_t oid);
  * \param iods	[IN/OUT]
  *			Array of I/O descriptors. The returned record
  *			sizes are also restored in this parameter.
- * \param size_fetch[IN]
- *			Fetch size only
+ * \param flags	[IN]	VOS fetch flags, VOS_FETCH_SIZE_ONLY,
+ *			VOS_FETCH_RECX_LIST or VOS_FETCH_HOLE_LIST.
+ * \param shadows [IN]	optional shadow recx/epoch lists, one for each iod.
+ *			only used for degraded fetch for EC obj.
  * \param ioh	[OUT]	The returned handle for the I/O.
  *
  * \return		Zero on success, negative value if error
@@ -580,7 +593,8 @@ vos_obj_delete(daos_handle_t coh, daos_unit_oid_t oid);
 int
 vos_fetch_begin(daos_handle_t coh, daos_unit_oid_t oid, daos_epoch_t epoch,
 		daos_key_t *dkey, unsigned int nr, daos_iod_t *iods,
-		bool size_fetch, daos_handle_t *ioh);
+		uint32_t flags, struct daos_recx_ep_list *shadows,
+		daos_handle_t *ioh);
 
 /**
  * Finish the fetch operation and release the responding resources.
@@ -638,6 +652,16 @@ vos_update_begin(daos_handle_t coh, daos_unit_oid_t oid, daos_epoch_t epoch,
 int
 vos_update_end(daos_handle_t ioh, uint32_t pm_ver, daos_key_t *dkey, int err,
 	       struct dtx_handle *dth);
+
+/**
+ * Get the recx/epoch list.
+ *
+ * \param ioh	[IN]	The I/O handle.
+ *
+ * \return		recx/epoch list.
+ */
+struct daos_recx_ep_list *
+vos_ioh2recx_list(daos_handle_t ioh);
 
 /**
  * Get the I/O descriptor.
