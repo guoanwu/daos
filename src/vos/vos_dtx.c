@@ -1,5 +1,5 @@
 /**
- * (C) Copyright 2019 Intel Corporation.
+ * (C) Copyright 2019-2020 Intel Corporation.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -539,8 +539,10 @@ vos_dtx_commit_one(struct vos_container *cont, struct dtx_id *dti,
 		goto out;
 
 	dtx_rec_release(cont, dae, false, &offset);
-	vos_dtx_del_cos(cont, &DAE_OID(dae), dti, DAE_DKEY_HASH(dae),
+	rc = vos_dtx_del_cos(cont, &DAE_OID(dae), dti, DAE_DKEY_HASH(dae),
 			DAE_INTENT(dae) == DAOS_INTENT_PUNCH ? true : false);
+	if (rc != 0)
+		D_GOTO(out, rc);
 
 	/* If dbtree_delete() failed, the @dae will be left in the active DTX
 	 * table until close the container. It is harmless but waste some DRAM.
