@@ -5,7 +5,7 @@
 
 Name:          daos
 Version:       1.1.0
-Release:       3%{?relval}%{?dist}
+Release:       4%{?relval}%{?dist}
 Summary:       DAOS Storage Engine
 
 License:       Apache
@@ -29,7 +29,7 @@ BuildRequires: argobots-devel >= 1.0rc1
 BuildRequires: libabt-devel >= 1.0rc1
 %endif
 BuildRequires: libpmem-devel, libpmemobj-devel
-BuildRequires: fuse-devel >= 3.4.2
+BuildRequires: fuse3-devel
 BuildRequires: protobuf-c-devel
 BuildRequires: spdk-devel <= %{spdk_max_version}, spdk-tools <= %{spdk_max_version}
 BuildRequires: fio < 3.4
@@ -84,7 +84,6 @@ BuildRequires: libpmemblk1
 %if (0%{?suse_version} >= 1500)
 Requires: libpmem1, libpmemobj1
 %endif
-Requires: fuse >= 3.4.2
 Requires: protobuf-c
 Requires: spdk <= %{spdk_max_version}
 Requires: fio < 3.4
@@ -336,8 +335,11 @@ getent group daos_admins >/dev/null || groupadd -r daos_admins
 %{_libdir}/*.a
 
 %changelog
+* Wed Mar 18 2020 Brian J. Murrell <brian.murrell@intel.com> - 1.1.0-4
+- Change fuse requirement to fuse3
+
 * Tue Mar 03 2020 Brian J. Murrell <brian.murrell@intel.com> - 1.1.0-3
-- bump up go minimum version to 1.12
+- Bump up go minimum version to 1.12
 
 * Thu Feb 20 2020 Brian J. Murrell <brian.murrell@intel.com> - 1.1.0-2
 - daos-server requires daos-client (same version)
