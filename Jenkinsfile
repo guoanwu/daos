@@ -102,45 +102,6 @@ def rpm_test_daos_test = '''me=\\\$(whoami)
                             trap 'set -x; kill -INT \\\$AGENT_PID \\\$COPROC_PID' EXIT
                             OFI_INTERFACE=eth0 daos_test -m'''
 
-def functional_test_script = '''test_tag=$(git show -s --format=%B | sed -ne "/^Test-tag%s:/s/^.*: *//p")
-                                if [ -z "$test_tag" ]; then
-                                    test_tag=%s
-                                fi
-                                tnodes=$(echo $NODELIST | cut -d ',' -f 1-3)
-                                clush -B -S -o '-i ci_key' -l root -w ${tnodes} \
-                                  "set -x
-                                   for i in 0 1; do
-                                     if [ -e /sys/class/net/ib\\\$i ]; then
-                                       if ! ifconfig ib\\\$i | grep "inet "; then
-                                         {
-                                           echo \"Found interface ib\\\$i down after reboot on \\\$HOSTNAME\"
-                                           systemctl status
-                                           systemctl --failed
-                                           journalctl -n 500
-                                           ifconfig ib\\\$i
-                                           cat /sys/class/net/ib\\\$i/mode
-                                           ifup ib\\\$i
-                                         } | mail -s \"Interface found down after reboot\" $OPERATIONS_EMAIL
-                                       fi
-                                     fi
-                                   done"
-                                # set DAOS_TARGET_OVERSUBSCRIBE env here
-                                export DAOS_TARGET_OVERSUBSCRIBE=1
-                                rm -rf install/lib/daos/TESTING/ftest/avocado ./*_results.xml
-                                mkdir -p install/lib/daos/TESTING/ftest/avocado/job-results
-                                ./ftest.sh "$test_tag" $tnodes %s'''
-
-
-//def runFunctionalTest(List stashes, String one, String two, String three) {
-//
-//    println("Going to runTest with: " + functional_test_script)
-//    runTest stashes: stashes,
-//            script: String.format(functional_test_script, one, two, three),
-//            junit_files: "install/lib/daos/TESTING/ftest/avocado/*/*/*.xml install/lib/daos/TESTING/ftest/*_results.xml",
-//            failure_artifacts: 'Functional'
-//
-//}
-
 // bail out of branch builds that are not on a whitelist
 if (!env.CHANGE_ID &&
     (env.BRANCH_NAME != "weekly-testing" &&
@@ -1111,81 +1072,81 @@ pipeline {
                       }
                     }
                 }
-//                stage('Functional') {
-//                    when {
-//                        beforeAgent true
-//                        expression {
-//                            ! commitPragma(pragma: 'Skip-func-test').contains('true')
-//                        }
-//                    }
-//                    agent {
-//                        label 'ci_vm9'
-//                    }
-//                    steps {
-//                        unstash 'CentOS-rpm-version'
-//                        script {
-//                            daos_packages_verison_el7 = readFile('centos7-rpm-version').trim()
-//                            if (daos_packages_verison_el7.length() < 1) {
-//                                error("Could not determine the RPM version")
-//                            }
-//                        }
-//                        provisionNodes NODELIST: env.NODELIST,
-//                                       node_count: 9,
-//                                       profile: 'daos_ci',
-//                                       distro: 'el7',
-//                                       snapshot: true,
-//                                       inst_repos: el7_daos_repos,
-//                                       inst_rpms: 'daos-' + daos_packages_verison_el7 +
-//                                                  ' daos-client-' + daos_packages_verison_el7 +
-//                                                  ' cart-' + env.CART_COMMIT + ' ' +
-//                                                  el7_functional_rpms
-//                        runTest stashes: [ 'CentOS-install', 'CentOS-build-vars' ],
-//                                script: String.functional_test_script('', 'pr,-hw', ''),
-//                                junit_files: "install/lib/daos/TESTING/ftest/avocado/*/*/*.xml install/lib/daos/TESTING/ftest/*_results.xml",
-//                                failure_artifacts: 'Functional'
-//                    }
-//                    post {
-//                        always {
-//                            sh '''rm -rf install/lib/daos/TESTING/ftest/avocado/*/*/html/
-//                                  # Remove the latest avocado symlink directory to avoid inclusion in the
-//                                  # jenkins build artifacts
-//                                  unlink install/lib/daos/TESTING/ftest/avocado/job-results/latest
-//                                  rm -rf "Functional/"
-//                                  mkdir "Functional/"
-//                                  # compress those potentially huge DAOS logs
-//                                  if daos_logs=$(ls install/lib/daos/TESTING/ftest/avocado/job-results/*/daos_logs/*); then
-//                                      lbzip2 $daos_logs
-//                                  fi
-//                                  arts="$arts$(ls *daos{,_agent}.log* 2>/dev/null)" && arts="$arts"$'\n'
-//                                  arts="$arts$(ls -d install/lib/daos/TESTING/ftest/avocado/job-results/* 2>/dev/null)" && arts="$arts"$'\n'
-//                                  if [ -n "$arts" ]; then
-//                                      mv $(echo $arts | tr '\n' ' ') "Functional/"
-//                                  fi'''
-//                            archiveArtifacts artifacts: 'Functional/**'
-//                            junit 'Functional/*/results.xml, install/lib/daos/TESTING/ftest/*_results.xml'
-//                        }
-//                        /* temporarily moved into runTest->stepResult due to JENKINS-39203
-//                        success {
-//                            githubNotify credentialsId: 'daos-jenkins-commit-status',
-//                                         description: env.STAGE_NAME,
-//                                         context: 'test/' + env.STAGE_NAME,
-//                                         status: 'SUCCESS'
-//                        }
-//                        unstable {
-//                            githubNotify credentialsId: 'daos-jenkins-commit-status',
-//                                         description: env.STAGE_NAME,
-//                                         context: 'test/' + env.STAGE_NAME,
-//                                         status: 'FAILURE'
-//                        }
-//                        failure {
-//                            githubNotify credentialsId: 'daos-jenkins-commit-status',
-//                                         description: env.STAGE_NAME,
-//                                         context: 'test/' + env.STAGE_NAME,
-//                                         status: 'ERROR'
-//                        }
-//                        */
-//                    }
-//                }
+                stage('Functional') {
+                    when {
+                        beforeAgent true
+                        expression {
+                            ! commitPragma(pragma: 'Skip-func-test').contains('true')
+                        }
+                    }
+                    agent {
+                        label 'ci_vm9'
+                    }
+                    steps {
+                        unstash 'CentOS-rpm-version'
+                        script {
+                            daos_packages_verison_el7 = readFile('centos7-rpm-version').trim()
+                            if (daos_packages_verison_el7.length() < 1) {
+                                error("Could not determine the RPM version")
+                            }
+                        }
+                        provisionNodes NODELIST: env.NODELIST,
+                                       node_count: 9,
+                                       profile: 'daos_ci',
+                                       distro: 'el7',
+                                       snapshot: true,
+                                       inst_repos: el7_daos_repos,
+                                       inst_rpms: 'daos-' + daos_packages_verison_el7 +
+                                                  ' daos-client-' + daos_packages_verison_el7 +
+                                                  ' cart-' + env.CART_COMMIT + ' ' +
+                                                  el7_functional_rpms
+                        runFunctionalTest stashes: [ 'CentOS-install', 'CentOS-build-vars' ],
+                                          pragma_suffix: '',
+                                          test_tag: 'pr,-hw',
+                                          ftest_arg: ''
+                    }
+                    post {
+                        always {
+                            sh '''rm -rf install/lib/daos/TESTING/ftest/avocado/*/*/html/
+                                  # Remove the latest avocado symlink directory to avoid inclusion in the
+                                  # jenkins build artifacts
+                                  unlink install/lib/daos/TESTING/ftest/avocado/job-results/latest
+                                  rm -rf "Functional/"
+                                  mkdir "Functional/"
+                                  # compress those potentially huge DAOS logs
+                                  if daos_logs=$(ls install/lib/daos/TESTING/ftest/avocado/job-results/*/daos_logs/*); then
+                                      lbzip2 $daos_logs
+                                  fi
+                                  arts="$arts$(ls *daos{,_agent}.log* 2>/dev/null)" && arts="$arts"$'\n'
+                                  arts="$arts$(ls -d install/lib/daos/TESTING/ftest/avocado/job-results/* 2>/dev/null)" && arts="$arts"$'\n'
+                                  if [ -n "$arts" ]; then
+                                      mv $(echo $arts | tr '\n' ' ') "Functional/"
+                                  fi'''
+                            archiveArtifacts artifacts: 'Functional/**'
+                            junit 'Functional/*/results.xml, install/lib/daos/TESTING/ftest/*_results.xml'
+                        }
+                        /* temporarily moved into runTest->stepResult due to JENKINS-39203
+                        success {
+                            githubNotify credentialsId: 'daos-jenkins-commit-status',
+                                         description: env.STAGE_NAME,
+                                         context: 'test/' + env.STAGE_NAME,
+                                         status: 'SUCCESS'
+                        }
+                        unstable {
+                            githubNotify credentialsId: 'daos-jenkins-commit-status',
+                                         description: env.STAGE_NAME,
+                                         context: 'test/' + env.STAGE_NAME,
+                                         status: 'FAILURE'
+                        }
+                        failure {
+                            githubNotify credentialsId: 'daos-jenkins-commit-status',
+                                         description: env.STAGE_NAME,
+                                         context: 'test/' + env.STAGE_NAME,
+                                         status: 'ERROR'
+                        }
+                        */
+                    }
+                }
                 stage('Functional on Leap 15') {
                     when {
                         beforeAgent true
@@ -1377,10 +1338,10 @@ pipeline {
                                                   ' daos-client-' + daos_packages_verison_el7 +
                                                   ' cart-' + env.CART_COMMIT + ' ' +
                                                   el7_functional_rpms
-                        runTest stashes: [ 'CentOS-install', 'CentOS-build-vars' ],
-                                script: String.functional_test_script('-hw-medium', 'pr,hw,medium,ib2', '"auto:Optane"'),
-                                junit_files: "install/lib/daos/TESTING/ftest/avocado/*/*/*.xml install/lib/daos/TESTING/ftest/*_results.xml",
-                                failure_artifacts: 'Functional'
+                        runFunctionalTest stashes: [ 'CentOS-install', 'CentOS-build-vars' ],
+                                          pragma_suffix: '-hw-medium',
+                                          test_tag: 'pr,hw,medium,ib2',
+                                          ftest_arg: '"auto:Optane"'
                     }
                     post {
                         always {
@@ -1459,10 +1420,10 @@ pipeline {
                                                   ' daos-client-' + daos_packages_verison_el7 +
                                                   ' cart-' + env.CART_COMMIT + ' ' +
                                                   el7_functional_rpms
-                        runTest stashes: [ 'CentOS-install', 'CentOS-build-vars' ],
-                                script: String.functional_test_script('-hw-large', 'pr,hw,large', '"auto:Optane"'),
-                                junit_files: "install/lib/daos/TESTING/ftest/avocado/*/*/*.xml install/lib/daos/TESTING/ftest/*_results.xml",
-                                failure_artifacts: 'Functional'
+                        runFunctionalTest stashes: [ 'CentOS-install', 'CentOS-build-vars' ],
+                                          pragma_suffix: '-hw-large',
+                                          test_tag: 'pr,hw,large',
+                                          ftest_arg: '"auto:Optane"'
                     }
                     post {
                         always {
@@ -1541,10 +1502,10 @@ pipeline {
                                                   ' daos-client-' + daos_packages_verison_leap15 +
                                                   ' cart-' + env.CART_COMMIT + ' ' +
                                                   leap15_functional_rpms
-                        runTest stashes: [ 'Leap-install', 'Leap-build-vars' ],
-                                script: String.functional_test_script('-hw-large', 'pr,hw,large', '"auto:Optane"'),
-                                junit_files: "install/lib/daos/TESTING/ftest/avocado/*/*/*.xml install/lib/daos/TESTING/ftest/*_results.xml",
-                                failure_artifacts: 'Functional'
+                        runFunctionalTest stashes: [ 'Leap-install', 'Leap-build-vars' ],
+                                          pragma_suffix: '-hw-large',
+                                          test_tag: 'pr,hw,large',
+                                          ftest_arg: '"auto:Optane"'
                     }
                     post {
                         always {

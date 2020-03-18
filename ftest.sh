@@ -142,15 +142,6 @@ CLUSH_ARGS=($CLUSH_ARGS)
 DAOS_BASE=${SL_PREFIX%/install}
 if ! clush "${CLUSH_ARGS[@]}" -B -l "${REMOTE_ACCT:-jenkins}" -R ssh -S \
     -w "$(IFS=','; echo "${nodes[*]}")" "set -ex
-### begin stuff that should go into pipeline-lib post-provision
-# make sure home is owned by us
-sudo chown jenkins.jenkins .
-if command -v zypper; then
-    sudo zypper --non-interactive ar -f http://download.opensuse.org/repositories/devel:languages:python:backports/openSUSE_Leap_15.1/ avocado
-    sudo zypper --non-interactive in python2-avocado-plugins-varianter-yaml-to-mux
-    sudo zypper --non-interactive --gpg-auto-import-keys ref avocado
-fi
-### end stuff that should go into pipeline-lib post-provision
 # allow core files to be generated
 sudo bash -c \"set -ex
 if [ \\\"\\\$(ulimit -c)\\\" != \\\"unlimited\\\" ]; then
