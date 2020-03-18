@@ -282,7 +282,6 @@ EOF
 # apply patch for https://github.com/avocado-framework/avocado/pull/3076/
 if ! grep TIMEOUT_TEARDOWN \
     /usr/lib/python2.7/site-packages/avocado/core/runner.py; then
-    sudo yum -y install patch
     sudo patch -p0 -d/ << \"EOF\"
 From d9e5210cd6112b59f7caff98883a9748495c07dd Mon Sep 17 00:00:00 2001
 From: Cleber Rosa <crosa@redhat.com>
@@ -371,16 +370,6 @@ if [[ \"${TEST_TAG_ARG}\" =~ soak ]]; then
         rc=0
     fi
 fi
-
-# install the debuginfo repo in case we get segfaults
-sudo bash -c \"cat <<\\\"EOF\\\" > /etc/yum.repos.d/CentOS-Debuginfo.repo
-[core-0-debuginfo]
-name=CentOS-7 - Debuginfo
-baseurl=http://debuginfo.centos.org/7/\\\$basearch/
-gpgcheck=1
-gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-Debug-7
-enabled=0
-EOF\"
 
 # now run it!
 if ! ./launch.py -crispa -ts ${TEST_NODES} ${NVME_ARG} ${TEST_TAG_ARR[*]}; then
