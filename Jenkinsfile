@@ -266,6 +266,9 @@ pipeline {
             }
             parallel {
                 stage('Build RPM on CentOS 7') {
+                    when {
+                        expression { false } // DO NOT LAND THIS
+                    }
                     agent {
                         dockerfile {
                             filename 'Dockerfile.mockbuild'
@@ -417,6 +420,9 @@ pipeline {
                     }
                 }
                 stage('Build on CentOS 7') {
+                    when {
+                        expression { false } // DO NOT LAND THIS
+                    }
                     agent {
                         dockerfile {
                             filename 'Dockerfile.centos.7'
