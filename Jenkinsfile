@@ -1103,6 +1103,7 @@ pipeline {
                         runFunctionalTest stashes: [ 'CentOS-install', 'CentOS-build-vars' ],
                                           pragma_suffix: '',
                                           test_tag: 'pr,-hw',
+                                          node_count: 9,
                                           ftest_arg: ''
                     }
                     post {
@@ -1178,6 +1179,7 @@ pipeline {
                         runFunctionalTest stashes: [ 'Leap-install', 'Leap-build-vars' ],
                                           pragma_suffix: '',
                                           test_tag: 'pr,-hw',
+                                          node_count: 9,
                                           ftest_arg: ''
                     }
                     post {
@@ -1259,6 +1261,7 @@ pipeline {
                         runFunctionalTest stashes: [ 'CentOS-install', 'CentOS-build-vars' ],
                                           pragma_suffix: '-hw-small',
                                           test_tag: 'pr,hw,small',
+                                          node_count: 3,
                                           ftest_arg: '"auto:Optane"'
                     }
                     post {
@@ -1341,6 +1344,7 @@ pipeline {
                         runFunctionalTest stashes: [ 'CentOS-install', 'CentOS-build-vars' ],
                                           pragma_suffix: '-hw-medium',
                                           test_tag: 'pr,hw,medium,ib2',
+                                          node_count: 5,
                                           ftest_arg: '"auto:Optane"'
                     }
                     post {
@@ -1423,6 +1427,7 @@ pipeline {
                         runFunctionalTest stashes: [ 'CentOS-install', 'CentOS-build-vars' ],
                                           pragma_suffix: '-hw-large',
                                           test_tag: 'pr,hw,large',
+                                          node_count: 9,
                                           ftest_arg: '"auto:Optane"'
                     }
                     post {
@@ -1505,6 +1510,7 @@ pipeline {
                         runFunctionalTest stashes: [ 'Leap-install', 'Leap-build-vars' ],
                                           pragma_suffix: '-hw-large',
                                           test_tag: 'pr,hw,large',
+                                          node_count: 9,
                                           ftest_arg: '"auto:Optane"'
                     }
                     post {
