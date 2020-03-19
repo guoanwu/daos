@@ -391,6 +391,7 @@ fi
 
 exit \$rc"; then
     rc=${PIPESTATUS[0]}
+    sleep 86400
     if ${SETUP_ONLY:-false}; then
         exit "$rc"
     fi
